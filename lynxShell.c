@@ -84,7 +84,7 @@ void holeInput(char *befehlZeile, size_t laenge)
             }
             argvRechts[i] = NULL;
 
-            int datenStrom[2];  // 🔁 hier der neue, selbsterklärende Name!
+            int datenStrom[2];  
             if (pipe(datenStrom) == -1)
             {
                 perror("Fehler bei pipe()");

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h> //für das Arbeitsverzeichnis
 #include <string.h> //Speicher Eingabe
-#include <sys/wait.h>
+#include <sys/wait.h> //Warteaufgabe
 
 #define BEFEHLSZEILE_LAENGE 512
 #define VERZEICHNIS_LAENGE 512
@@ -46,7 +46,18 @@ void holeInput(char *befehlszeile, size_t laenge)
     { // checken ob leer
         return;
     }
+    //checke ob | vorhanden
+    char *verbinderCount = strchr(befehlszeile, '|');
+    int verbinderVorhanden = (verbinderCount != NULL); 
+    
+    if(verbinderVorhanden==1){
+        *verbinderCount='\0';
+        char *vorne = befehlszeile;
+        char *hinten = verbinderCount+1;
+        while (*hinten == ' ') {hinten++;}
+    }
 
+    //checke ob ; vorhanden
     char *befehlsteil = strtok(befehlszeile, ";");
 
     while (befehlsteil != NULL)

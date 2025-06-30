@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h> //für das Arbeitsverzeichnis
-#include <string.h> //Speicher Eingabe
+#include <unistd.h>   //für das Arbeitsverzeichnis
+#include <string.h>   //Speicher Eingabe
 #include <sys/wait.h> //Warteaufgabe
 
 #define BEFEHLSZEILE_LAENGE 512
@@ -23,93 +23,149 @@ void zeigePfad(char *verzeichnis)
     fflush(stdout);
 }
 
-void holeInput(char *befehlszeile, size_t laenge)
+void holeInput(char *befehlZeile, size_t laenge)
 {
-    // Quelle Userinput: https://www.tutorialspoint.com/c_standard_library/c_function_fgets.htm
-    if (fgets(befehlszeile, laenge, stdin) != NULL)
+    if (fgets(befehlZeile, laenge, stdin) != NULL)
     {
-        printf("Die Eingabe war: %s", befehlszeile);
+        printf("Die Eingabe war: %s", befehlZeile);
     }
     else
     {
-        printf("Fehler bei der Eingabe.");
+        printf("Fehler bei der Eingabe.\n");
         return;
     }
-    befehlszeile[strlen(befehlszeile) - 1] = '\0'; // \n am ende weg
+    befehlZeile[strlen(befehlZeile) - 1] = '\0'; // \n am Ende weg
 
-    if (strcmp(befehlszeile, "exit") == 0) //beenden ermöglichen
+    if (strcmp(befehlZeile, "exit") == 0)
     {
         exit(0);
     }
 
-    if (befehlszeile[0] == '\0')
-    { // checken ob leer
+    if (befehlZeile[0] == '\0')
+    {
         return;
     }
-    //checke ob | vorhanden
-    char *verbinderCount = strchr(befehlszeile, '|');
-    int verbinderVorhanden = (verbinderCount != NULL); 
-    
-    if(verbinderVorhanden==1){
-        *verbinderCount='\0';
-        char *vorne = befehlszeile;
-        char *hinten = verbinderCount+1;
-        while (*hinten == ' ') {hinten++;}
-    }
 
-    //checke ob ; vorhanden
-    char *befehlsteil = strtok(befehlszeile, ";");
+    // Semikolon 
+    char *befehlTeil = strtok(befehlZeile, ";");
 
-    while (befehlsteil != NULL)
+    while (befehlTeil != NULL)
     {
-        while (*befehlsteil == ' ')
+        while (*befehlTeil == ' ')
+            befehlTeil++;
+
+        if (*befehlTeil == '\0')
         {
-            befehlsteil++;
-        }
-        if (*befehlsteil == '\0')
-        {
-            befehlsteil = strtok(NULL, ";");
+            befehlTeil = strtok(NULL, ";");
             continue;
         }
 
-        char *aufgeteilterBefehl[15];
-        int i = 0;
-        char *einzelBefehl = strtok(befehlsteil, " ");
+        // Pipe
+        char *positionPipe = strchr(befehlTeil, '|');
+        int pipeVorhanden = (positionPipe != NULL);
 
-        while (einzelBefehl != NULL && i < 14)
+        if (pipeVorhanden)
         {
-            aufgeteilterBefehl[i] = einzelBefehl;
-            i++;
-            einzelBefehl = strtok(NULL, " ");
-        }
-        aufgeteilterBefehl[i] = NULL;
+            *positionPipe = '\0';
+            char *befehlLinks = befehlTeil;
+            char *befehlRechts = positionPipe + 1;
 
-        pid_t pid = fork();
+            while (*befehlRechts == ' ')
+                befehlRechts++;
 
-        if (pid == -1)
-        {
-            printf("Fehler Child erstellen.\n");
-            return;
-        }
+            char *befehlTeilLinks[15];
+            int i = 0;
+            char *wort = strtok(befehlLinks, " ");
+            while (wort != NULL && i < 14)
+            {
+                befehlTeilLinks[i++] = wort;
+                wort = strtok(NULL, " ");
+            }
+            befehlTeilLinks[i] = NULL;
 
-        if (pid == 0)
-        {
-            execvp(aufgeteilterBefehl[0], aufgeteilterBefehl);
-            printf("Fehler Befehl ausfuehren.\n");
-            exit(1);
+            char *befehlTeilRechts[15];
+            i = 0;
+            wort = strtok(befehlRechts, " ");
+            while (wort != NULL && i < 14)
+            {
+                befehlTeilRechts[i++] = wort;
+                wort = strtok(NULL, " ");
+            }
+            befehlTeilRechts[i] = NULL;
+
+            int dateiDeskriptoren[2];
+            if (pipe(dateiDeskriptoren) == -1)
+            {
+                perror("Fehler bei pipe");
+                return;
+            }
+
+            pid_t pidLinks = fork();
+            if (pidLinks == 0)
+            {
+                dup2(dateiDeskriptoren[1], STDOUT_FILENO);
+                close(dateiDeskriptoren[0]);
+                close(dateiDeskriptoren[1]);
+                execvp(befehlTeilLinks[0], befehlTeilLinks);
+                perror("Fehler linker Teil");
+                exit(1);
+            }
+
+            pid_t pidRechts = fork();
+            if (pidRechts == 0)
+            {
+                dup2(dateiDeskriptoren[0], STDIN_FILENO);
+                close(dateiDeskriptoren[1]);
+                close(dateiDeskriptoren[0]);
+                execvp(befehlTeilRechts[0], befehlTeilRechts);
+                perror("Fehler rechter Teil");
+                exit(1);
+            }
+
+            close(dateiDeskriptoren[0]);
+            close(dateiDeskriptoren[1]);
+            wait(NULL);
+            wait(NULL);
         }
         else
         {
-            // Shell wartet
-            wait(NULL);
+            char *befehlAufgeteilt[15];
+            int i = 0;
+            char *wort = strtok(befehlTeil, " ");
+            while (wort != NULL && i < 14)
+            {
+                befehlAufgeteilt[i++] = wort;
+                wort = strtok(NULL, " ");
+            }
+            befehlAufgeteilt[i] = NULL;
+
+            pid_t pid = fork();
+            if (pid == -1)
+            {
+                printf("Fehler Child.\n");
+                return;
+            }
+
+            if (pid == 0)
+            {
+                printf("Starte Befehl: %s\n", befehlAufgeteilt[0]);
+                execvp(befehlAufgeteilt[0], befehlAufgeteilt);
+                perror("Fehler beim Ausführen des Befehls");
+                exit(1);
+            }
+            else
+            {
+                wait(NULL);
+            }
         }
-        befehlsteil = strtok(NULL, ";");
+
+        befehlTeil = strtok(NULL, ";");
     }
 }
 
+
 int main()
 {
-
     while (1)
     {
         char verzeichnis[VERZEICHNIS_LAENGE];

@@ -25,34 +25,29 @@ void zeigePfad(char *verzeichnis)
 
 void holeInput(char *befehlZeile, size_t laenge)
 {
-    if (fgets(befehlZeile, laenge, stdin) != NULL)
-    {
-        printf("Die Eingabe war: %s", befehlZeile);
-    }
-    else
+    if (fgets(befehlZeile, laenge, stdin) == NULL)
     {
         printf("Fehler bei der Eingabe.\n");
         return;
     }
-    befehlZeile[strlen(befehlZeile) - 1] = '\0'; // \n am Ende weg
+
+    printf("Die Eingabe war: %s", befehlZeile);
+
+    size_t len = strlen(befehlZeile);
+    if (len > 0 && befehlZeile[len - 1] == '\n')
+        befehlZeile[len - 1] = '\0';
 
     if (strcmp(befehlZeile, "exit") == 0)
-    {
         exit(0);
-    }
 
     if (befehlZeile[0] == '\0')
-    {
         return;
-    }
 
-    // Semikolon 
     char *befehlTeil = strtok(befehlZeile, ";");
 
     while (befehlTeil != NULL)
     {
-        while (*befehlTeil == ' ')
-            befehlTeil++;
+        while (*befehlTeil == ' ') befehlTeil++;
 
         if (*befehlTeil == '\0')
         {
@@ -60,53 +55,49 @@ void holeInput(char *befehlZeile, size_t laenge)
             continue;
         }
 
-        // Pipe
         char *positionPipe = strchr(befehlTeil, '|');
-        int pipeVorhanden = (positionPipe != NULL);
-
-        if (pipeVorhanden)
+        if (positionPipe)
         {
             *positionPipe = '\0';
             char *befehlLinks = befehlTeil;
             char *befehlRechts = positionPipe + 1;
 
-            while (*befehlRechts == ' ')
-                befehlRechts++;
+            while (*befehlRechts == ' ') befehlRechts++;
 
-            char *befehlTeilLinks[15];
+            char *argvLinks[15];
             int i = 0;
             char *wort = strtok(befehlLinks, " ");
-            while (wort != NULL && i < 14)
+            while (wort && i < 14)
             {
-                befehlTeilLinks[i++] = wort;
+                argvLinks[i++] = wort;
                 wort = strtok(NULL, " ");
             }
-            befehlTeilLinks[i] = NULL;
+            argvLinks[i] = NULL;
 
-            char *befehlTeilRechts[15];
+            char *argvRechts[15];
             i = 0;
             wort = strtok(befehlRechts, " ");
-            while (wort != NULL && i < 14)
+            while (wort && i < 14)
             {
-                befehlTeilRechts[i++] = wort;
+                argvRechts[i++] = wort;
                 wort = strtok(NULL, " ");
             }
-            befehlTeilRechts[i] = NULL;
+            argvRechts[i] = NULL;
 
-            int dateiDeskriptoren[2];
-            if (pipe(dateiDeskriptoren) == -1)
+            int datenStrom[2];  // 🔁 hier der neue, selbsterklärende Name!
+            if (pipe(datenStrom) == -1)
             {
-                perror("Fehler bei pipe");
+                perror("Fehler bei pipe()");
                 return;
             }
 
             pid_t pidLinks = fork();
             if (pidLinks == 0)
             {
-                dup2(dateiDeskriptoren[1], STDOUT_FILENO);
-                close(dateiDeskriptoren[0]);
-                close(dateiDeskriptoren[1]);
-                execvp(befehlTeilLinks[0], befehlTeilLinks);
+                dup2(datenStrom[1], STDOUT_FILENO);
+                close(datenStrom[0]);
+                close(datenStrom[1]);
+                execvp(argvLinks[0], argvLinks);
                 perror("Fehler linker Teil");
                 exit(1);
             }
@@ -114,25 +105,26 @@ void holeInput(char *befehlZeile, size_t laenge)
             pid_t pidRechts = fork();
             if (pidRechts == 0)
             {
-                dup2(dateiDeskriptoren[0], STDIN_FILENO);
-                close(dateiDeskriptoren[1]);
-                close(dateiDeskriptoren[0]);
-                execvp(befehlTeilRechts[0], befehlTeilRechts);
+                dup2(datenStrom[0], STDIN_FILENO);
+                close(datenStrom[1]);
+                close(datenStrom[0]);
+                execvp(argvRechts[0], argvRechts);
                 perror("Fehler rechter Teil");
                 exit(1);
             }
 
-            close(dateiDeskriptoren[0]);
-            close(dateiDeskriptoren[1]);
-            wait(NULL);
-            wait(NULL);
+            close(datenStrom[0]);
+            close(datenStrom[1]);
+
+            waitpid(pidLinks, NULL, 0);
+            waitpid(pidRechts, NULL, 0);
         }
         else
         {
             char *befehlAufgeteilt[15];
             int i = 0;
             char *wort = strtok(befehlTeil, " ");
-            while (wort != NULL && i < 14)
+            while (wort && i < 14)
             {
                 befehlAufgeteilt[i++] = wort;
                 wort = strtok(NULL, " ");
@@ -142,27 +134,25 @@ void holeInput(char *befehlZeile, size_t laenge)
             pid_t pid = fork();
             if (pid == -1)
             {
-                printf("Fehler Child.\n");
+                printf("Fehler beim Erzeugen des Kindprozesses.\n");
                 return;
             }
 
             if (pid == 0)
             {
-                printf("Starte Befehl: %s\n", befehlAufgeteilt[0]);
                 execvp(befehlAufgeteilt[0], befehlAufgeteilt);
                 perror("Fehler beim Ausführen des Befehls");
                 exit(1);
             }
             else
             {
-                wait(NULL);
+                waitpid(pid, NULL, 0);
             }
         }
 
         befehlTeil = strtok(NULL, ";");
     }
 }
-
 
 int main()
 {

@@ -49,7 +49,8 @@ void holeInput(char *befehlZeile, size_t laenge)
 
     while (befehlTeil != NULL)
     {
-        while (*befehlTeil == ' ') befehlTeil++;
+        while (*befehlTeil == ' ')
+            befehlTeil++;
 
         if (*befehlTeil == '\0')
         {
@@ -64,7 +65,8 @@ void holeInput(char *befehlZeile, size_t laenge)
             char *befehlLinks = befehlTeil;
             char *befehlRechts = positionPipe + 1;
 
-            while (*befehlRechts == ' ') befehlRechts++;
+            while (*befehlRechts == ' ')
+                befehlRechts++;
 
             char *argvLinks[15];
             int i = 0;
@@ -86,41 +88,42 @@ void holeInput(char *befehlZeile, size_t laenge)
             }
             argvRechts[i] = NULL;
 
-            int datenStrom[2];  
+            int datenStrom[2];
             if (pipe(datenStrom) == -1)
             {
                 perror("Fehler bei pipe()");
                 return;
-        
-            // vielleicht eigene funktion mit datenstrom und argv als übergabeparameter
-            pid_t pidLinks = fork();
-            if (pidLinks == 0)
-            {
-                dup2(datenStrom[1], STDOUT_FILENO);
+
+                // vielleicht eigene funktion mit datenstrom und argv als übergabeparameter
+                pid_t pidLinks = fork();
+                if (pidLinks == 0)
+                {
+                    dup2(datenStrom[1], STDOUT_FILENO);
+                    close(datenStrom[0]);
+                    close(datenStrom[1]);
+                    execvp(argvLinks[0], argvLinks);
+                    perror("Fehler linker Teil");
+                    exit(1);
+                }
+
+                pid_t pidRechts = fork();
+                if (pidRechts == 0)
+                {
+                    dup2(datenStrom[0], STDIN_FILENO);
+                    close(datenStrom[1]);
+                    close(datenStrom[0]);
+                    execvp(argvRechts[0], argvRechts);
+                    perror("Fehler rechter Teil");
+                    exit(1);
+                }
+
+                // unnötig da nicht offen
                 close(datenStrom[0]);
                 close(datenStrom[1]);
-                execvp(argvLinks[0], argvLinks);
-                perror("Fehler linker Teil");
-                exit(1);
+
+                waitpid(pidLinks, NULL, 0);
+                waitpid(pidRechts, NULL, 0);
             }
-
-            pid_t pidRechts = fork();
-            if (pidRechts == 0)
-            {
-                dup2(datenStrom[0], STDIN_FILENO);
-                close(datenStrom[1]);
-                close(datenStrom[0]);
-                execvp(argvRechts[0], argvRechts);
-                perror("Fehler rechter Teil");
-                exit(1);
-            }
-
-            // unnötig da nicht offen
-            close(datenStrom[0]);
-            close(datenStrom[1]);
-
-            waitpid(pidLinks, NULL, 0);
-            waitpid(pidRechts, NULL, 0);
         }
         else
         {
@@ -168,3 +171,5 @@ int main()
         holeInput(befehlszeile, sizeof(befehlszeile));
     }
 }
+
+main();

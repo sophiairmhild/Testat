@@ -43,6 +43,8 @@ void holeInput(char *befehlZeile, size_t laenge)
     if (befehlZeile[0] == '\0')
         return;
 
+    // toDo einzelne funktionen wie trennung ; pipe usw in einzelne Funktionen trennen
+    // die können dann wiederverwendet werden ;-)
     char *befehlTeil = strtok(befehlZeile, ";");
 
     while (befehlTeil != NULL)
@@ -89,8 +91,8 @@ void holeInput(char *befehlZeile, size_t laenge)
             {
                 perror("Fehler bei pipe()");
                 return;
-            }
-
+        
+            // vielleicht eigene funktion mit datenstrom und argv als übergabeparameter
             pid_t pidLinks = fork();
             if (pidLinks == 0)
             {
@@ -113,6 +115,7 @@ void holeInput(char *befehlZeile, size_t laenge)
                 exit(1);
             }
 
+            // unnötig da nicht offen
             close(datenStrom[0]);
             close(datenStrom[1]);
 

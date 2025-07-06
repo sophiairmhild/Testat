@@ -8,7 +8,7 @@
 #define VERZEICHNIS_LAENGE 512
 
 /* Shell von Sophia Weber - beinhaltet die gewünschten Funktionalitäten
-   wie z. B. die Anzeige der Pfade, die PATH-Variablen-Verarbeitung usw. */
+   wie z. B. die Anzeige der Pfade, die Nutzung klassicher Befehle, Pipe, Semikolon usw. */
 
 void zeigePfad(char *verzeichnis)
 {

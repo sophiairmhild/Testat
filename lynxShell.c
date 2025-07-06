@@ -3,12 +3,86 @@
 #include <unistd.h>   //für das Arbeitsverzeichnis
 #include <string.h>   //Speicher Eingabe
 #include <sys/wait.h> //Warteaufgabe
+#include <stdbool.h>
 
 #define BEFEHLSZEILE_LAENGE 512
 #define VERZEICHNIS_LAENGE 512
 
 /* Shell von Sophia Weber - beinhaltet die gewünschten Funktionalitäten
    wie z. B. die Anzeige der Pfade, die Nutzung klassicher Befehle, Pipe, Semikolon usw. */
+void verarbeitePipe(char *positionPipe, char *befehlTeil)
+{
+    char *befehlLinks = befehlTeil;
+    char *befehlRechts = positionPipe + 1;
+
+    while (*befehlRechts == ' ')
+        befehlRechts++;
+
+    char *argvLinks[15];
+    int i = 0;
+    char *wort = strtok(befehlLinks, " ");
+    while (wort && i < 14)
+    {
+        argvLinks[i++] = wort;
+        wort = strtok(NULL, " ");
+    }
+    argvLinks[i] = NULL;
+
+    char *argvRechts[15];
+    i = 0;
+    wort = strtok(befehlRechts, " ");
+    while (wort && i < 14)
+    {
+        argvRechts[i++] = wort;
+        wort = strtok(NULL, " ");
+    }
+    argvRechts[i] = NULL;
+
+    int datenStrom[2];
+    if (pipe(datenStrom) == -1)
+    {
+        perror("Fehler bei pipe()");
+        return;
+
+        // vielleicht eigene funktion mit datenstrom und argv als übergabeparameter
+        pid_t pidLinks = fork();
+        if (pidLinks == 0)
+        {
+            dup2(datenStrom[1], STDOUT_FILENO);
+            close(datenStrom[0]);
+            close(datenStrom[1]);
+            execvp(argvLinks[0], argvLinks);
+            perror("Fehler linker Teil");
+            exit(1);
+        }
+
+        pid_t pidRechts = fork();
+        if (pidRechts == 0)
+        {
+            dup2(datenStrom[0], STDIN_FILENO);
+            close(datenStrom[1]);
+            close(datenStrom[0]);
+            execvp(argvRechts[0], argvRechts);
+            perror("Fehler rechter Teil");
+            exit(1);
+        }
+
+        // unnötig da nicht offen
+        close(datenStrom[0]);
+        close(datenStrom[1]);
+
+        waitpid(pidLinks, NULL, 0);
+        waitpid(pidRechts, NULL, 0);
+    }
+}
+
+void verarbeiteSemikolon()
+{
+}
+
+void verarbeiteEinzelBefehl()
+{
+}
 
 void zeigePfad(char *verzeichnis)
 {
@@ -23,12 +97,12 @@ void zeigePfad(char *verzeichnis)
     fflush(stdout);
 }
 
-void holeInput(char *befehlZeile, size_t laenge)
+bool holeInput(char *befehlZeile, size_t laenge)
 {
     if (fgets(befehlZeile, laenge, stdin) == NULL)
     {
         printf("Fehler bei der Eingabe.\n");
-        return;
+        return false;
     }
 
     printf("Die Eingabe war: %s", befehlZeile);
@@ -41,8 +115,15 @@ void holeInput(char *befehlZeile, size_t laenge)
         exit(0);
 
     if (befehlZeile[0] == '\0')
-        return;
+    {
+        return false;
+    }
 
+    return true;
+}
+
+void verarbeiteInput(char *befehlZeile)
+{
     // toDo einzelne funktionen wie trennung ; pipe usw in einzelne Funktionen trennen
     // die können dann wiederverwendet werden ;-)
     char *befehlTeil = strtok(befehlZeile, ";");
@@ -62,68 +143,7 @@ void holeInput(char *befehlZeile, size_t laenge)
         if (positionPipe)
         {
             *positionPipe = '\0';
-            char *befehlLinks = befehlTeil;
-            char *befehlRechts = positionPipe + 1;
-
-            while (*befehlRechts == ' ')
-                befehlRechts++;
-
-            char *argvLinks[15];
-            int i = 0;
-            char *wort = strtok(befehlLinks, " ");
-            while (wort && i < 14)
-            {
-                argvLinks[i++] = wort;
-                wort = strtok(NULL, " ");
-            }
-            argvLinks[i] = NULL;
-
-            char *argvRechts[15];
-            i = 0;
-            wort = strtok(befehlRechts, " ");
-            while (wort && i < 14)
-            {
-                argvRechts[i++] = wort;
-                wort = strtok(NULL, " ");
-            }
-            argvRechts[i] = NULL;
-
-            int datenStrom[2];
-            if (pipe(datenStrom) == -1)
-            {
-                perror("Fehler bei pipe()");
-                return;
-
-                // vielleicht eigene funktion mit datenstrom und argv als übergabeparameter
-                pid_t pidLinks = fork();
-                if (pidLinks == 0)
-                {
-                    dup2(datenStrom[1], STDOUT_FILENO);
-                    close(datenStrom[0]);
-                    close(datenStrom[1]);
-                    execvp(argvLinks[0], argvLinks);
-                    perror("Fehler linker Teil");
-                    exit(1);
-                }
-
-                pid_t pidRechts = fork();
-                if (pidRechts == 0)
-                {
-                    dup2(datenStrom[0], STDIN_FILENO);
-                    close(datenStrom[1]);
-                    close(datenStrom[0]);
-                    execvp(argvRechts[0], argvRechts);
-                    perror("Fehler rechter Teil");
-                    exit(1);
-                }
-
-                // unnötig da nicht offen
-                close(datenStrom[0]);
-                close(datenStrom[1]);
-
-                waitpid(pidLinks, NULL, 0);
-                waitpid(pidRechts, NULL, 0);
-            }
+            verarbeitePipe(positionPipe, befehlTeil);
         }
         else
         {
@@ -168,8 +188,9 @@ int main()
         char befehlszeile[BEFEHLSZEILE_LAENGE];
 
         zeigePfad(verzeichnis);
-        holeInput(befehlszeile, sizeof(befehlszeile));
+        if (holeInput(befehlszeile, sizeof(befehlszeile)))
+        {
+            verarbeiteInput(befehlszeile);
+        }
     }
 }
-
-main();

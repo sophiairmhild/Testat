@@ -10,6 +10,45 @@
 
 /* Shell von Sophia Weber - beinhaltet die gewünschten Funktionalitäten
    wie z. B. die Anzeige der Pfade, die Nutzung klassicher Befehle, Pipe, Semikolon usw. */
+// cd test
+// cd ~/test
+// cd /home/bla/blub
+bool verarbeiteCD(char *befehl)
+{
+    char absoluterPfad[100] = {0};
+    char *pfad = NULL;
+    pfad = strtok(befehl, " ");
+    if (pfad == NULL)
+    {
+        return false;
+    }
+    pfad = strtok(NULL, " "); // Bei Null wird der Pointer vom vorherigen strtok genommen an der stelle wo das " " ersetzt wurde
+    if (pfad == NULL)
+    {
+        return false;
+    }
+    if (pfad[0] == '~')
+    {
+        char *home = getenv("HOME");
+        strcat(absoluterPfad, home);
+        strcat(absoluterPfad, &pfad[1]);
+    }
+    else if (pfad[0] != '/')
+    {
+        char curdir[100] = {0};
+        getcwd(curdir, sizeof curdir);
+        strcat(absoluterPfad, curdir);
+        strcat(absoluterPfad, '/');
+        strcat(absoluterPfad, pfad);
+    }
+    else
+    {
+        strcpy(absoluterPfad, pfad);
+    }
+    printf("Ändere Ordner: %s\n", absoluterPfad);
+    chdir(absoluterPfad);
+}
+
 void verarbeitePipe(char *positionPipe, char *befehlTeil)
 {
     char *befehlLinks = befehlTeil;
@@ -80,8 +119,26 @@ void verarbeiteSemikolon()
 {
 }
 
-void verarbeiteEinzelBefehl()
+void verarbeiteEinzelBefehl(char *befehl)
 {
+    pid_t pid = fork();
+    if (pid == -1)
+    {
+        printf("Fehler beim Erzeugen des Kindprozesses.\n");
+        return;
+    }
+
+    if (pid == 0)
+    {
+        execvp(befehl[0], befehl);
+        perror("Fehler beim Ausführen des Befehls");
+        exit(1);
+    }
+    else
+    {
+        waitpid(pid, NULL, 0);
+        printf("Parent process continuing\n");
+    }
 }
 
 void zeigePfad(char *verzeichnis)
@@ -145,6 +202,10 @@ void verarbeiteInput(char *befehlZeile)
             *positionPipe = '\0';
             verarbeitePipe(positionPipe, befehlTeil);
         }
+        else if (strncmp(befehlTeil, "cd", 2) == 0)
+        {
+            verarbeiteCD(befehlTeil);
+        }
         else
         {
             char *befehlAufgeteilt[15];
@@ -157,23 +218,7 @@ void verarbeiteInput(char *befehlZeile)
             }
             befehlAufgeteilt[i] = NULL;
 
-            pid_t pid = fork();
-            if (pid == -1)
-            {
-                printf("Fehler beim Erzeugen des Kindprozesses.\n");
-                return;
-            }
-
-            if (pid == 0)
-            {
-                execvp(befehlAufgeteilt[0], befehlAufgeteilt);
-                perror("Fehler beim Ausführen des Befehls");
-                exit(1);
-            }
-            else
-            {
-                waitpid(pid, NULL, 0);
-            }
+            verarbeiteEinzelBefehl(befehlAufgeteilt);
         }
 
         befehlTeil = strtok(NULL, ";");
@@ -182,11 +227,11 @@ void verarbeiteInput(char *befehlZeile)
 
 int main()
 {
+    char verzeichnis[VERZEICHNIS_LAENGE];
+    char befehlszeile[BEFEHLSZEILE_LAENGE];
+    char data[20] = "cd home/sophia";
     while (1)
     {
-        char verzeichnis[VERZEICHNIS_LAENGE];
-        char befehlszeile[BEFEHLSZEILE_LAENGE];
-
         zeigePfad(verzeichnis);
         if (holeInput(befehlszeile, sizeof(befehlszeile)))
         {

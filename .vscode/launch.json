@@ -31,7 +31,7 @@
   "type": "cppdbg",
   "request": "launch",
   "program": "/bin/bash",
-  "args": ["-c", "cd shtest && cp ../lynxShell lynxShell && ./shtest lynxShell"],
+  "args": ["-c", "cd shtest && cp ../lynxShell lynxShell && ./shtest ${pwd}/lynxShell"],
   "console": "integratedTerminal",
   "cwd": "${workspaceFolder}"
 }

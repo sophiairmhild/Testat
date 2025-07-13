@@ -4,6 +4,7 @@
 #include <string.h>   //Speicher Eingabe
 #include <sys/wait.h> //Warteaufgabe
 #include <signal.h>
+#include <stdbool.h>
 
 #define BEFEHLSZEILE_LAENGE 512
 #define VERZEICHNIS_LAENGE 512
@@ -12,6 +13,118 @@ char letzterBefehl[BEFEHLSZEILE_LAENGE] = {0};
 
 /* Shell von Sophia Weber - beinhaltet die gewünschten Funktionalitäten
    wie z. B. die Anzeige der Pfade, die Nutzung klassicher Befehle, Pipe, Semikolon usw. */
+// cd test
+// cd ~/test
+// cd /home/bla/blub
+bool verarbeiteCD(char *befehl)
+{
+    char absoluterPfad[100] = {0};
+    char *pfad = NULL;
+    pfad = strtok(befehl, " ");
+    if (pfad == NULL)
+    {
+        return false;
+    }
+    pfad = strtok(NULL, " "); // Bei Null wird der Pointer vom vorherigen strtok genommen an der stelle wo das " " ersetzt wurde
+    if (pfad == NULL)
+    {
+        return false;
+    }
+    if (pfad[0] == '~')
+    {
+        char *home = getenv("HOME");
+        strcat(absoluterPfad, home);
+        strcat(absoluterPfad, &pfad[1]);
+    }
+    else if (pfad[0] != '/')
+    {
+        char curdir[100] = {0};
+        getcwd(curdir, sizeof curdir);
+        strcat(absoluterPfad, curdir);
+        strcat(absoluterPfad, '/');
+        strcat(absoluterPfad, pfad);
+    }
+    else
+    {
+        strcpy(absoluterPfad, pfad);
+    }
+    printf("Ändere Ordner: %s\n", absoluterPfad);
+    chdir(absoluterPfad);
+}
+
+void verarbeitePipe(char *positionPipe, char *befehlTeil)
+{
+    char *befehlLinks = befehlTeil;
+    char *befehlRechts = positionPipe + 1;
+
+    char *argvLinks[15];
+    char *argvRechts[15];
+    bearbeiteInput(befehlLinks, argvLinks);
+    bearbeiteInput(befehlRechts, argvRechts);
+
+    int datenStrom[2];
+    if (pipe(datenStrom) == -1)
+    {
+        perror("Fehler bei pipe()");
+        return;
+
+        // vielleicht eigene funktion mit datenstrom und argv als übergabeparameter
+        pid_t pidLinks = fork();
+        if (pidLinks == 0)
+        {
+            dup2(datenStrom[1], STDOUT_FILENO);
+            close(datenStrom[0]);
+            close(datenStrom[1]);
+            execvp(argvLinks[0], argvLinks);
+            perror("Fehler linker Teil");
+            exit(1);
+        }
+
+        pid_t pidRechts = fork();
+        if (pidRechts == 0)
+        {
+            dup2(datenStrom[0], STDIN_FILENO);
+            close(datenStrom[1]);
+            close(datenStrom[0]);
+            execvp(argvRechts[0], argvRechts);
+            perror("Fehler rechter Teil");
+            exit(1);
+        }
+
+        // unnötig da nicht offen
+        close(datenStrom[0]);
+        close(datenStrom[1]);
+
+        waitpid(pidLinks, NULL, 0);
+        waitpid(pidRechts, NULL, 0);
+    }
+}
+
+void verarbeiteSemikolon()
+{
+}
+
+void verarbeiteEinzelBefehl(char *befehl)
+{
+    pid_t pid = fork();
+    if (pid == -1)
+    {
+        printf("Fehler beim Erzeugen des Kindprozesses.\n");
+        return;
+    }
+
+    if (pid == 0)
+    {
+        execvp(befehl[0], befehl);
+        perror("Fehler beim Ausführen des Befehls");
+        exit(1);
+    }
+    else
+    {
+        waitpid(pid, NULL, 0);
+        printf("Parent process continuing\n");
+    }
+}
 
 // Signal-Handler für SIGHUP
 void handle_sighup(int signum) {
@@ -45,12 +158,12 @@ void bearbeiteInput(char* input, char** inputArgs) {
 
 }
 
-void holeInput(char *befehlZeile, size_t laenge)
+bool holeInput(char *befehlZeile, size_t laenge)
 {
     if (fgets(befehlZeile, laenge, stdin) == NULL)
     {
         printf("Fehler bei der Eingabe.\n");
-        return;
+        return false;
     }
 
     printf("Die Eingabe war: %s", befehlZeile);
@@ -69,8 +182,15 @@ void holeInput(char *befehlZeile, size_t laenge)
         
 
     if (befehlZeile[0] == '\0')
-        return;
+    {
+        return false;
+    }
 
+    return true;
+}
+
+void verarbeiteInput(char *befehlZeile)
+{
     // toDo einzelne funktionen wie trennung ; pipe usw in einzelne Funktionen trennen
     // die können dann wiederverwendet werden ;-)
     memcpy(letzterBefehl, befehlZeile, BEFEHLSZEILE_LAENGE);
@@ -91,73 +211,17 @@ void holeInput(char *befehlZeile, size_t laenge)
         if (positionPipe)
         {
             *positionPipe = '\0';
-            char *argvLinks[15] = {0};
-            bearbeiteInput(befehlTeil, argvLinks);
-
-            char *argvRechts[15] = {0};
-            bearbeiteInput(positionPipe, argvRechts);
-
-            int datenStrom[2];
-            if (pipe(datenStrom) == -1)
-            {
-                perror("Fehler bei pipe()");
-                return;
-            }
-
-            // vielleicht eigene funktion mit datenstrom und argv als übergabeparameter
-            pid_t pidLinks = fork();
-            if (pidLinks == 0)
-            {
-                printf("Ich bin das Kind");
-                dup2(datenStrom[1], STDOUT_FILENO);
-                close(datenStrom[0]);
-                close(datenStrom[1]);
-                execvp(argvLinks[0], argvLinks);
-                perror("Fehler linker Teil");
-                exit(1);
-            }
-
-            pid_t pidRechts = fork();
-            if (pidRechts == 0)
-            {
-                printf("Ich bin das Kind");
-                dup2(datenStrom[0], STDIN_FILENO);
-                close(datenStrom[1]);
-                close(datenStrom[0]);
-                execvp(argvRechts[0], argvRechts);
-                perror("Fehler rechter Teil");
-                exit(1);
-            }
-
-            // unnötig da nicht offen
-            close(datenStrom[0]);
-            close(datenStrom[1]);
-
-            waitpid(pidLinks, NULL, 0);
-            waitpid(pidRechts, NULL, 0);
+            verarbeitePipe(positionPipe, befehlTeil);
+        }
+        else if (strncmp(befehlTeil, "cd", 2) == 0)
+        {
+            verarbeiteCD(befehlTeil);
         }
         else
         {
-            char * befehlAufgeteilt[15] = {0};
-            bearbeiteInput(befehlTeil, befehlAufgeteilt);
-            pid_t pid = fork();
-            if (pid == -1)
-            {
-                printf("Fehler beim Erzeugen des Kindprozesses.\n");
-                return;
-            }
-
-            if (pid == 0)
-            {
-                printf("Ich bin das Kind");
-                execvp(befehlTeil, befehlAufgeteilt);
-                perror("Fehler beim Ausführen des Befehls");
-                exit(1);
-            }
-            else
-            {
-                waitpid(pid, NULL, 0);
-            }
+            char *befehlAufgeteilt[15];
+            bearbeiteInput(befehlZeile, befehlAufgeteilt);
+            verarbeiteEinzelBefehl(befehlAufgeteilt);
         }
 
         befehlTeil = strtok(NULL, ";");
@@ -166,6 +230,9 @@ void holeInput(char *befehlZeile, size_t laenge)
 
 int main()
 {
+    char verzeichnis[VERZEICHNIS_LAENGE];
+    char befehlszeile[BEFEHLSZEILE_LAENGE];
+    char data[20] = "cd home/sophia";
     while (1)
     {
         char verzeichnis[VERZEICHNIS_LAENGE];
@@ -178,6 +245,9 @@ int main()
         }
 
         zeigePfad(verzeichnis);
-        holeInput(befehlszeile, sizeof(befehlszeile));
+        if (holeInput(befehlszeile, sizeof(befehlszeile)))
+        {
+            verarbeiteInput(befehlszeile);
+        }
     }
 }

@@ -50,12 +50,14 @@ bool verarbeiteCD(char *befehl)
     {
         return false;
     }
+    // bearbeite home Pfad indem die ~ durch das home verzeichnis ersetzt wird
     if (pfad[0] == '~')
     {
         char *home = getenv("HOME");
         strcat(absoluterPfad, home);
         strcat(absoluterPfad, &pfad[1]);
     }
+    // behandle relative pfade
     else if (pfad[0] != '/')
     {
         char curdir[100] = {0};
@@ -64,23 +66,24 @@ bool verarbeiteCD(char *befehl)
         strcat(absoluterPfad, "/");
         strcat(absoluterPfad, pfad);
     }
+    // behandle absolute pfade
     else
     {
         strcpy(absoluterPfad, pfad);
     }
-    printf("Ändere Ordner: %s\n", absoluterPfad);
+    // printf("Ändere Ordner: %s\n", absoluterPfad);
     chdir(absoluterPfad);
 }
 
-void verarbeitePipe(char *positionPipe, char *befehlTeil)
+void verarbeitePipe(char *befehl)
 {
-    char *befehlEltern = befehlTeil;
-    char *befehlKind = positionPipe + 1;
     char *argv1[15] = {0};
     char *argv2[15] = {0};
+    char *befehl1 = strtok(befehl,"|");
+    char *befehl2 = strtok(NULL,"|");
 
-    bearbeiteInput(befehlEltern, argv1);
-    bearbeiteInput(befehlKind, argv2);
+    bearbeiteInput(befehl1, argv1);
+    bearbeiteInput(befehl2, argv2);
 
     int pipefd[2];
     pipe(pipefd);
@@ -91,7 +94,7 @@ void verarbeitePipe(char *positionPipe, char *befehlTeil)
         close(pipefd[0]);                 // liest nicht
         dup2(pipefd[1], STDOUT_FILENO);  // stdout → pipe
         close(pipefd[1]);
-        execvp(befehlEltern, argv1);
+        execvp(befehl1, argv1);
         perror("Fehler im Argument 1");
         exit(1);
     }
@@ -102,7 +105,7 @@ void verarbeitePipe(char *positionPipe, char *befehlTeil)
         close(pipefd[1]);                // schreibt nicht
         dup2(pipefd[0], STDIN_FILENO);  // stdin ← pipe
         close(pipefd[0]);
-        execvp(befehlKind, argv2);
+        execvp(befehl2, argv2);
         perror("Fehler im Argument 2");
         exit(1);
     }
@@ -116,8 +119,8 @@ void verarbeitePipe(char *positionPipe, char *befehlTeil)
     waitpid(pid2, &status2, 0);
     fflush(stdout);
     
-    // printf("%s Exit-Code: %d\n", befehlEltern, WEXITSTATUS(status1));
-    // printf("%s Exit-Code: %d\n", befehlKind,  WEXITSTATUS(status2));
+    // printf("%s Exit-Code: %d\n", befehl1, WEXITSTATUS(status1));
+    // printf("%s Exit-Code: %d\n", befehl2,  WEXITSTATUS(status2));
 }
 
 void verarbeiteEinzelBefehl(char *befehl, char **arg)
@@ -145,7 +148,7 @@ void verarbeiteEinzelBefehl(char *befehl, char **arg)
 
 // Signal-Handler für SIGHUP
 void verarbeiteSighup(int signum) {
-    exit(letzterRückgabewert);
+    printf("%i\n",letzterRückgabewert);
 }
 
 void zeigePfad(char *verzeichnis)
@@ -169,7 +172,7 @@ bool holeInput(char *befehlZeile, size_t laenge)
         return false;
     }
 
-    printf("Die Eingabe war: %s", befehlZeile);
+    // printf("Die Eingabe war: %s", befehlZeile);
 
     size_t len = strlen(befehlZeile);
     if (len > 0 && befehlZeile[len - 1] == '\n')
@@ -206,11 +209,9 @@ void verarbeiteInput(char *befehlZeile)
             befehlTeil++;
         memcpy(befehl, befehlTeil, strlen(befehlTeil)+1);
 
-        char *positionPipe = strchr(befehl, '|');
-        if (positionPipe)
+        if (strchr(befehl, '|'))
         {
-            *positionPipe = '\0';
-            verarbeitePipe(positionPipe, befehl);
+            verarbeitePipe(befehl);
         }
         else if (strncmp(befehl, "cd", 2) == 0)
         {

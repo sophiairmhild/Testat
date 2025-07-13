@@ -9,10 +9,30 @@
 #define BEFEHLSZEILE_LAENGE 512
 #define VERZEICHNIS_LAENGE 512
 
-char letzterBefehl[BEFEHLSZEILE_LAENGE] = {0};
+char letzterRückgabewert = 0;
 
 /* Shell von Sophia Weber - beinhaltet die gewünschten Funktionalitäten
    wie z. B. die Anzeige der Pfade, die Nutzung klassicher Befehle, Pipe, Semikolon usw. */
+
+void bearbeiteInput(char* input, char** inputArgs) {
+    int i = 0;
+    char* inputStart = input;
+    while (*input == ' ') {
+        input++;
+    }
+    memcpy(inputStart, input, strlen(input)+1);        
+    char *wort = strtok(input, " ");
+    while (wort && i < 14)
+    {
+        inputArgs[i++] = wort;
+        // printf("|%s|", wort);
+        wort = strtok(NULL, " ");
+    }
+    // printf("\n");
+    inputArgs[i] = NULL;
+    
+}
+
 // cd test
 // cd ~/test
 // cd /home/bla/blub
@@ -41,7 +61,7 @@ bool verarbeiteCD(char *befehl)
         char curdir[100] = {0};
         getcwd(curdir, sizeof curdir);
         strcat(absoluterPfad, curdir);
-        strcat(absoluterPfad, '/');
+        strcat(absoluterPfad, "/");
         strcat(absoluterPfad, pfad);
     }
     else
@@ -54,57 +74,53 @@ bool verarbeiteCD(char *befehl)
 
 void verarbeitePipe(char *positionPipe, char *befehlTeil)
 {
-    char *befehlLinks = befehlTeil;
-    char *befehlRechts = positionPipe + 1;
+    char *befehlEltern = befehlTeil;
+    char *befehlKind = positionPipe + 1;
+    char *argv1[15] = {0};
+    char *argv2[15] = {0};
 
-    char *argvLinks[15];
-    char *argvRechts[15];
-    bearbeiteInput(befehlLinks, argvLinks);
-    bearbeiteInput(befehlRechts, argvRechts);
+    bearbeiteInput(befehlEltern, argv1);
+    bearbeiteInput(befehlKind, argv2);
 
-    int datenStrom[2];
-    if (pipe(datenStrom) == -1)
-    {
-        perror("Fehler bei pipe()");
-        return;
+    int pipefd[2];
+    pipe(pipefd);
 
-        // vielleicht eigene funktion mit datenstrom und argv als übergabeparameter
-        pid_t pidLinks = fork();
-        if (pidLinks == 0)
-        {
-            dup2(datenStrom[1], STDOUT_FILENO);
-            close(datenStrom[0]);
-            close(datenStrom[1]);
-            execvp(argvLinks[0], argvLinks);
-            perror("Fehler linker Teil");
-            exit(1);
-        }
-
-        pid_t pidRechts = fork();
-        if (pidRechts == 0)
-        {
-            dup2(datenStrom[0], STDIN_FILENO);
-            close(datenStrom[1]);
-            close(datenStrom[0]);
-            execvp(argvRechts[0], argvRechts);
-            perror("Fehler rechter Teil");
-            exit(1);
-        }
-
-        // unnötig da nicht offen
-        close(datenStrom[0]);
-        close(datenStrom[1]);
-
-        waitpid(pidLinks, NULL, 0);
-        waitpid(pidRechts, NULL, 0);
+    pid_t pid1 = fork();
+    if (pid1 == 0) {
+        // Kind 1: false
+        close(pipefd[0]);                 // liest nicht
+        dup2(pipefd[1], STDOUT_FILENO);  // stdout → pipe
+        close(pipefd[1]);
+        execvp(befehlEltern, argv1);
+        perror("Fehler im Argument 1");
+        exit(1);
     }
+
+    pid_t pid2 = fork();
+    if (pid2 == 0) {
+        // Kind 2: wc
+        close(pipefd[1]);                // schreibt nicht
+        dup2(pipefd[0], STDIN_FILENO);  // stdin ← pipe
+        close(pipefd[0]);
+        execvp(befehlKind, argv2);
+        perror("Fehler im Argument 2");
+        exit(1);
+    }
+    // Elternprozess: beide Seiten schließen
+    close(pipefd[0]);
+    close(pipefd[1]);
+
+    // Warten auf beide Kinder
+    int status1, status2;
+    waitpid(pid1, &status1, 0);
+    waitpid(pid2, &status2, 0);
+    fflush(stdout);
+    
+    // printf("%s Exit-Code: %d\n", befehlEltern, WEXITSTATUS(status1));
+    // printf("%s Exit-Code: %d\n", befehlKind,  WEXITSTATUS(status2));
 }
 
-void verarbeiteSemikolon()
-{
-}
-
-void verarbeiteEinzelBefehl(char *befehl)
+void verarbeiteEinzelBefehl(char *befehl, char **arg)
 {
     pid_t pid = fork();
     if (pid == -1)
@@ -115,20 +131,21 @@ void verarbeiteEinzelBefehl(char *befehl)
 
     if (pid == 0)
     {
-        execvp(befehl[0], befehl);
+        execvp(befehl, arg);
         perror("Fehler beim Ausführen des Befehls");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     else
     {
-        waitpid(pid, NULL, 0);
-        printf("Parent process continuing\n");
+        int status;
+        waitpid(pid, &status, 0);
+        letzterRückgabewert = WEXITSTATUS(status);
     }
 }
 
 // Signal-Handler für SIGHUP
-void handle_sighup(int signum) {
-    printf("%s\n", letzterBefehl);
+void verarbeiteSighup(int signum) {
+    exit(letzterRückgabewert);
 }
 
 void zeigePfad(char *verzeichnis)
@@ -142,20 +159,6 @@ void zeigePfad(char *verzeichnis)
 
     printf("%s> ", verzeichnis);
     fflush(stdout);
-}
-void bearbeiteInput(char* input, char** inputArgs) {
-    int i = 0;
-    while (*input == ' ') {
-        input++;
-    }         
-    char *wort = strtok(input, " ");
-    while (wort && i < 14)
-    {
-        inputArgs[i++] = wort;
-        wort = strtok(NULL, " ");
-    }
-    inputArgs[i] = 0;
-
 }
 
 bool holeInput(char *befehlZeile, size_t laenge)
@@ -176,8 +179,8 @@ bool holeInput(char *befehlZeile, size_t laenge)
         exit(0);
 
     if (strcmp(befehlZeile, "ret") == 0) {
-        printf("Letzter Befehl: %s", letzterBefehl);
-        return;
+        printf("%i\n",letzterRückgabewert);
+        return false;
     }
         
 
@@ -193,38 +196,34 @@ void verarbeiteInput(char *befehlZeile)
 {
     // toDo einzelne funktionen wie trennung ; pipe usw in einzelne Funktionen trennen
     // die können dann wiederverwendet werden ;-)
-    memcpy(letzterBefehl, befehlZeile, BEFEHLSZEILE_LAENGE);
     char *befehlTeil = strtok(befehlZeile, ";");
+    char befehl[BEFEHLSZEILE_LAENGE] = {0};
 
     while (befehlTeil != NULL)
     {
+        befehlZeile+=strlen(befehlTeil)+1;
         while (*befehlTeil == ' ')
             befehlTeil++;
+        memcpy(befehl, befehlTeil, strlen(befehlTeil)+1);
 
-        if (*befehlTeil == '\0')
-        {
-            befehlTeil = strtok(NULL, ";");
-            continue;
-        }
-
-        char *positionPipe = strchr(befehlTeil, '|');
+        char *positionPipe = strchr(befehl, '|');
         if (positionPipe)
         {
             *positionPipe = '\0';
-            verarbeitePipe(positionPipe, befehlTeil);
+            verarbeitePipe(positionPipe, befehl);
         }
-        else if (strncmp(befehlTeil, "cd", 2) == 0)
+        else if (strncmp(befehl, "cd", 2) == 0)
         {
-            verarbeiteCD(befehlTeil);
+            verarbeiteCD(befehl);
         }
         else
         {
             char *befehlAufgeteilt[15];
-            bearbeiteInput(befehlZeile, befehlAufgeteilt);
-            verarbeiteEinzelBefehl(befehlAufgeteilt);
+            bearbeiteInput(befehl, befehlAufgeteilt);
+            verarbeiteEinzelBefehl(befehl, befehlAufgeteilt);
         }
 
-        befehlTeil = strtok(NULL, ";");
+        befehlTeil = strtok(befehlZeile, ";");
     }
 }
 
@@ -232,17 +231,19 @@ int main()
 {
     char verzeichnis[VERZEICHNIS_LAENGE];
     char befehlszeile[BEFEHLSZEILE_LAENGE];
-    char data[20] = "cd home/sophia";
+    char data[BEFEHLSZEILE_LAENGE] = "date +%s |wc -c";
+    // verarbeiteInput(data);
+    // return;
+
+    // Signal-Handler registrieren
+    if (signal(SIGHUP, verarbeiteSighup) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
     while (1)
     {
         char verzeichnis[VERZEICHNIS_LAENGE];
         char befehlszeile[BEFEHLSZEILE_LAENGE];
-
-        // Signal-Handler registrieren
-        if (signal(SIGHUP, handle_sighup) == SIG_ERR) {
-            perror("signal");
-            exit(1);
-        }
 
         zeigePfad(verzeichnis);
         if (holeInput(befehlszeile, sizeof(befehlszeile)))

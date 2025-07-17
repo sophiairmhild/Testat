@@ -169,7 +169,8 @@ bool holeInput(char *befehlZeile, size_t laenge)
     if (fgets(befehlZeile, laenge, stdin) == NULL)
     {
         printf("Fehler bei der Eingabe.\n");
-        return false;
+        fflush(stdin);
+        exit(0);
     }
 
     // printf("Die Eingabe war: %s", befehlZeile);
